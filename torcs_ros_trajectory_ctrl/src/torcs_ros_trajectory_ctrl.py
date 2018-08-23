@@ -135,63 +135,74 @@ class FollowTrajectory():
     #calculate and publish control commands
     def calculate_ctrl_commands(self):
         msg_skip = BoolStamped() #message used to indicate that nengo should not train as it would create an error
-        if (self.sen_speedX < 30 or self.bClassic == True): #if the speed is too slow or the starting point has not been reached
-            self.rpm_th = 5500 #rpm threshold set high
-            self.accel_th = 0.8 #accel set high
-            self.trajectory = Path() #reset as empty
-            self.trajectory.poses = [] #ensure poses are empty
-            
-            self.NotifySaveDontSave(True) #Notify datalogger that current data is not relevant to training procedure
-
-            # If the vehicle is close to the starting point       
-            if (self.sen_distance > self.startDistance-35 and self.sen_distance < self.startDistance + 100): 
-                self.rpm_th = 4000 #reduce rpm threshold
-                self.accel_th = 0.2 #set accel to low
-                if (self.sen_speedX > 40): #reduce speed if speed is higher than desired
-                    self.ctrl_brake = 1 
-                    self.ctrl_accel = 0  
-                else:
-                    self.ctrl_brake = 0 #ensure brake value is reset to not being engaged
-            #change back to neuromorphic controller if starting point has been passed
-            if (self.sen_distance > self.startDistance and self.sen_distance < self.startDistance + 100):
-                self.bClassic = False
-            self.ControlClassic(); #call classic controller
-
-        elif (len(self.trajectory.poses) > 0): #ensure this callback does not happen before the first trajectory has been published
-            self.NotifySaveDontSave(False)
-            [f_distToTraj, idx_poseHeading, f_distToEnd, self.needForAction_msg.data] = BaseLinkToTrajectory(
-                    self.ros_trans.x, self.ros_trans.y, self.trajectory.poses) #Calculate baselink to trajectory information
-            self.trajectory_rot.Set(self.trajectory.poses[idx_poseHeading]) #Convert msg type to vec4() quatenrion
-            f_deltaHeading = self.ComputeAngleDifference(self.ros_rot, self.trajectory_rot) #difference in desired orientation to current baselink orientation
+        if(True):
+            self.ControlOuterClassic(-1)
+        else:
+            if (self.sen_speedX < 30 or self.bClassic == True): #if the speed is too slow or the starting point has not been reached
+                self.rpm_th = 5500 #rpm threshold set high
+                self.accel_th = 0.8 #accel set high
+                self.trajectory = Path() #reset as empty
+                self.trajectory.poses = [] #ensure poses are empty
                 
-            self.ctrl_steering = (f_deltaHeading + f_distToTraj*self.param_kappa)/self.param_steerLock
-            self.RPMandAccel(); #set accel value
-            self.PublishCtrlMessage(); #publish control message
-
-            
-            msg_skip.header.stamp = rospy.Time.now()
-            msg_skip.data = False
-            if (f_distToEnd < 1.5): #check whether end of trajectory has been reached (within a margin)
-                if(self.sen_trackpos <= 1):
-                    self.needForAction_msg.data = True #indicate a new trajectory is needed
-                else:
-                    print("\033[31m Oh oh. Restart and end of trajectory collision. Not running nengo \033[0m")
-                    self.needForAction_msg.data = False
-                    msg_skip.data = True #Next training should be skipped as nengo will fail. Featurenot always working yet.
+                self.NotifySaveDontSave(True) #Notify datalogger that current data is not relevant to training procedure
+    
+                # If the vehicle is close to the starting point       
+                if (self.sen_distance > self.startDistance-35 and self.sen_distance < self.startDistance + 100): 
+                    self.rpm_th = 4000 #reduce rpm threshold
+                    self.accel_th = 0.2 #set accel to low
+                    if (self.sen_speedX > 40): #reduce speed if speed is higher than desired
+                        self.ctrl_brake = 1 
+                        self.ctrl_accel = 0  
+                    else:
+                        self.ctrl_brake = 0 #ensure brake value is reset to not being engaged
+                #change back to neuromorphic controller if starting point has been passed
+                if (self.sen_distance > self.startDistance and self.sen_distance < self.startDistance + 100):
+                    self.bClassic = False
+                self.ControlClassic(); #call classic controller
+    
+            elif (len(self.trajectory.poses) > 0): #ensure this callback does not happen before the first trajectory has been published
+                self.NotifySaveDontSave(False)
+                [f_distToTraj, idx_poseHeading, f_distToEnd, self.needForAction_msg.data] = BaseLinkToTrajectory(
+                        self.ros_trans.x, self.ros_trans.y, self.trajectory.poses) #Calculate baselink to trajectory information
+                self.trajectory_rot.Set(self.trajectory.poses[idx_poseHeading]) #Convert msg type to vec4() quatenrion
+                f_deltaHeading = self.ComputeAngleDifference(self.ros_rot, self.trajectory_rot) #difference in desired orientation to current baselink orientation
                     
-            self.pub_skipTraining.publish(msg_skip) #publish skip training message
-            self.needForAction_msg.header.stamp = rospy.Time.now()
-            self.pub_needTrajectory.publish(self.needForAction_msg) #send message whether new control is needed or not
-            self.pub_ctrl.publish(self.msg_ctrl) #publish control message            
-            self.CheckForOutOfTrack() #restart server if vehicle is of track
-
-        else: #no trajectory message has been received yet
-            self.needForAction_msg.data = True #indicate a new trajectory is needed
-            self.needForAction_msg.header.stamp = rospy.Time.now()
-            self.pub_needTrajectory.publish(self.needForAction_msg) #send message that new trajectory is needed
-            
+                self.ctrl_steering = (f_deltaHeading + f_distToTraj*self.param_kappa)/self.param_steerLock
+                self.RPMandAccel(); #set accel value
+                self.PublishCtrlMessage(); #publish control message
+    
+                
+                msg_skip.header.stamp = rospy.Time.now()
+                msg_skip.data = False
+                if (f_distToEnd < 1.5): #check whether end of trajectory has been reached (within a margin)
+                    if(self.sen_trackpos <= 1):
+                        self.needForAction_msg.data = True #indicate a new trajectory is needed
+                    else:
+                        print("\033[31m Oh oh. Restart and end of trajectory collision. Not running nengo \033[0m")
+                        self.needForAction_msg.data = False
+                        msg_skip.data = True #Next training should be skipped as nengo will fail. Featurenot always working yet.
+                        
+                self.pub_skipTraining.publish(msg_skip) #publish skip training message
+                self.needForAction_msg.header.stamp = rospy.Time.now()
+                self.pub_needTrajectory.publish(self.needForAction_msg) #send message whether new control is needed or not
+                self.pub_ctrl.publish(self.msg_ctrl) #publish control message            
+                self.CheckForOutOfTrack() #restart server if vehicle is of track
+    
+            else: #no trajectory message has been received yet
+                self.needForAction_msg.data = True #indicate a new trajectory is needed
+                self.needForAction_msg.header.stamp = rospy.Time.now()
+                self.pub_needTrajectory.publish(self.needForAction_msg) #send message that new trajectory is needed
+                
     def ControlClassic(self):
          self.ctrl_steering = (self.sen_angle - self.sen_trackpos*self.param_kappa)/self.param_steerLock #control towards midline
+         self.RPMandAccel()
+         self.PublishCtrlMessage()
+         
+    def ControlOuterClassic(self, side):
+         self.NotifySaveDontSave(False) 
+         self.rpm_th = 4000 #reduce rpm threshold
+         self.accel_th = 0.2 #set accel to low
+         self.ctrl_steering = (self.sen_angle - side*(abs(self.sen_trackpos)-1)*self.param_kappa)/self.param_steerLock #control towards midline
          self.RPMandAccel()
          self.PublishCtrlMessage()
          
